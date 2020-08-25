@@ -1,0 +1,280 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - deploy-pipeline-test
+  schedule:
+    - cron: '0 10 * * *' # Once per day at 10am UTC
+
+env:
+  SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+  GRADLE_ENTERPRISE_CACHE_USER: ${{ secrets.GRADLE_ENTERPRISE_CACHE_USER }}
+  GRADLE_ENTERPRISE_CACHE_PASSWORD: ${{ secrets.GRADLE_ENTERPRISE_CACHE_PASSWORD }}
+  GRADLE_ENTERPRISE_SECRET_ACCESS_KEY: ${{ secrets.GRADLE_ENTERPRISE_SECRET_ACCESS_KEY }}
+  COMMIT_OWNER: ${{ github.event.pusher.name }}
+  COMMIT_SHA: ${{ github.sha }}
+
+jobs:
+  build:
+    name: Build JDK 8
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Create initial results file
+        run: |
+          touch job-results.txt
+      - name: Export initial results file
+        uses: actions/upload-artifact@v2
+        with:
+          name: errors
+          path: job-results.txt
+      - name: Set up JDK 8
+        uses: actions/setup-java@v1
+        with:
+          java-version: '8'
+      - name: Cache Gradle packages
+        uses: actions/cache@v2
+        with:
+          path: ~/.gradle/caches
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle') }}
+      - name: Build with Gradle
+        run: |
+          export GRADLE_ENTERPRISE_CACHE_USERNAME="$GRADLE_ENTERPRISE_CACHE_USER"
+          export GRADLE_ENTERPRISE_CACHE_PASSWORD="$GRADLE_ENTERPRISE_CACHE_PASSWORD"
+          export GRADLE_ENTERPRISE_ACCESS_KEY="$GRADLE_ENTERPRISE_SECRET_ACCESS_KEY"
+          ./gradlew clean build --continue
+      - name: Output failure
+        if: ${{ failure() }}
+        run: |
+          echo ":no_entry_sign: *${GITHUB_JOB}* failed" > job-$GITHUB_JOB.txt
+      - name: Export errors file
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v2
+        with:
+          name: errors
+          path: job-${{ github.job }}.txt
+  test_alternate_jdks:
+    name: Test JDK 11 and 12
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        jdk: [11, 12]
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v2
+      - name: Set up JDK ${{ matrix.jdk }}
+        uses: actions/setup-java@v1
+        with:
+          java-version: ${{ matrix.jdk }}
+      - name: Cache Gradle packages
+        uses: actions/cache@v2
+        with:
+          path: ~/.gradle/caches
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle') }}
+      - name: Test with Gradle
+        run: |
+          export GRADLE_ENTERPRISE_CACHE_USERNAME="$GRADLE_ENTERPRISE_CACHE_USER"
+          export GRADLE_ENTERPRISE_CACHE_PASSWORD="$GRADLE_ENTERPRISE_CACHE_PASSWORD"
+          export GRADLE_ENTERPRISE_ACCESS_KEY="$GRADLE_ENTERPRISE_SECRET_ACCESS_KEY"
+          ./gradlew test --stacktrace
+      - name: Output failure
+        if: ${{ failure() }}
+        run: |
+          echo ":no_entry_sign: *${GITHUB_JOB}-${JDK_VERSION}* failed" > job-$GITHUB_JOB-$JDK_VERSION.txt
+        env:
+          JDK_VERSION: ${{ matrix.jdk }}
+      - name: Export errors file
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v2
+        with:
+          name: errors
+          path: job-${{ github.job }}-${{ matrix.jdk }}.txt
+  snapshot_tests:
+    name: Test against snapshots
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Set up JDK
+        uses: actions/setup-java@v1
+        with:
+          java-version: '8'
+      - name: Snapshot Tests
+        run: |
+          export GRADLE_ENTERPRISE_CACHE_USERNAME="$GRADLE_ENTERPRISE_CACHE_USER"
+          export GRADLE_ENTERPRISE_CACHE_PASSWORD="$GRADLE_ENTERPRISE_CACHE_PASSWORD"
+          export GRADLE_ENTERPRISE_ACCESS_KEY="$GRADLE_ENTERPRISE_SECRET_ACCESS_KEY"
+          ./gradlew test --refresh-dependencies -PforceMavenRepositories=snapshot -PspringVersion='5.+' -PreactorVersion='20+' -PspringDataVersion='Lovelace-BUILD-SNAPSHOT' -PrsocketVersion=1.1.0-SNAPSHOT -PspringBootVersion=2.4.0-SNAPSHOT -PkotlinVersion=1.4.0 -PlocksDisabled --stacktrace
+      - name: Output failure
+        if: ${{ failure() }}
+        run: |
+          echo ":no_entry_sign: *${GITHUB_JOB}* failed" > job-$GITHUB_JOB.txt
+      - name: Export errors file
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v2
+        with:
+          name: errors
+          path: job-${{ github.job }}.txt
+  sonar_analysis:
+    name: Static Code Analysis
+    runs-on: ubuntu-latest
+    env:
+      SONAR_URL: ${{ secrets.SONAR_URL }}
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+    steps:
+      - uses: actions/checkout@v2
+      - name: Set up JDK
+        uses: actions/setup-java@v1
+        with:
+          java-version: '8'
+      - name: Run Sonar on given (non-master) branch
+        if: ${{ github.ref != 'refs/heads/master' }}
+        run: |
+          export BRANCH=${GITHUB_REF#refs/heads/}
+          export GRADLE_ENTERPRISE_CACHE_USERNAME="$GRADLE_ENTERPRISE_CACHE_USER"
+          export GRADLE_ENTERPRISE_CACHE_PASSWORD="$GRADLE_ENTERPRISE_CACHE_PASSWORD"
+          export GRADLE_ENTERPRISE_ACCESS_KEY="$GRADLE_ENTERPRISE_SECRET_ACCESS_KEY"
+          ./gradlew sonarqube -PexcludeProjects='**/samples/**' -Dsonar.projectKey="spring-security-${GITHUB_REF#refs/heads/}" -Dsonar.projectName="spring-security-${GITHUB_REF#refs/heads/}" -Dsonar.host.url="$SONAR_URL" -Dsonar.login="$SONAR_TOKEN" --stacktrace
+      - name: Run Sonar on master
+        if: ${{ github.ref == 'refs/heads/master' }}
+        run: |
+          export GRADLE_ENTERPRISE_CACHE_USERNAME="$GRADLE_ENTERPRISE_CACHE_USER"
+          export GRADLE_ENTERPRISE_CACHE_PASSWORD="$GRADLE_ENTERPRISE_CACHE_PASSWORD"
+          export GRADLE_ENTERPRISE_ACCESS_KEY="$GRADLE_ENTERPRISE_SECRET_ACCESS_KEY"
+          ./gradlew sonarqube -PexcludeProjects='**/samples/**' -Dsonar.host.url="$SONAR_URL" -Dsonar.login="$SONAR_TOKEN" --stacktrace
+      - name: Output failure
+        if: ${{ failure() }}
+        run: |
+          echo ":no_entry_sign: *${GITHUB_JOB}* failed" > job-$GITHUB_JOB.txt
+      - name: Export errors file
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v2
+        with:
+          name: errors
+          path: job-${{ github.job }}.txt
+  deploy_artifacts:
+    name: Deploy Artifacts
+    needs: [build, test_alternate_jdks, snapshot_tests, sonar_analysis]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Set up JDK
+        uses: actions/setup-java@v1
+        with:
+          java-version: '8'
+      - name: Deploy artifacts
+        run: |
+          export GRADLE_ENTERPRISE_CACHE_USERNAME="$GRADLE_ENTERPRISE_CACHE_USER"
+          export GRADLE_ENTERPRISE_CACHE_PASSWORD="$GRADLE_ENTERPRISE_CACHE_PASSWORD"
+          export GRADLE_ENTERPRISE_ACCESS_KEY="$GRADLE_ENTERPRISE_SECRET_ACCESS_KEY"
+          export VERSION_HEADER=$'Version: GnuPG v2\n\n'
+          export ORG_GRADLE_PROJECT_signingKey=${GPG_PRIVATE_KEY#"$VERSION_HEADER"}
+          export ORG_GRADLE_PROJECT_signingPassword="$GPG_PASSPHRASE"
+          ./gradlew deployArtifacts finalizeDeployArtifacts -PossrhUsername="$OSSRH_USERNAME" -PossrhPassword="$OSSRH_PASSWORD" -PartifactoryUsername="$ARTIFACTORY_USERNAME" -PartifactoryPassword="$ARTIFACTORY_PASSWORD" --stacktrace
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+          OSSRH_USERNAME: ${{ secrets.OSSRH_USERNAME }}
+          OSSRH_PASSWORD: ${{ secrets.OSSRH_PASSWORD }}
+          ARTIFACTORY_USERNAME: ${{ secrets.ARTIFACTORY_USERNAME }}
+          ARTIFACTORY_PASSWORD: ${{ secrets.ARTIFACTORY_PASSWORD }}
+      - name: Output failure
+        if: ${{ failure() }}
+        run: |
+          echo ":no_entry_sign: *${GITHUB_JOB}* failed" > job-$GITHUB_JOB.txt
+      - name: Export errors file
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v2
+        with:
+          name: errors
+          path: job-${{ github.job }}.txt
+  deploy_docs:
+    name: Deploy Docs
+    needs: [build, test_alternate_jdks, snapshot_tests, sonar_analysis]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Set up JDK
+        uses: actions/setup-java@v1
+        with:
+          java-version: '8'
+      - name: Deploy Docs
+        run: |
+          export GRADLE_ENTERPRISE_CACHE_USERNAME="$GRADLE_ENTERPRISE_CACHE_USER"
+          export GRADLE_ENTERPRISE_CACHE_PASSWORD="$GRADLE_ENTERPRISE_CACHE_PASSWORD"
+          export GRADLE_ENTERPRISE_ACCESS_KEY="$GRADLE_ENTERPRISE_SECRET_ACCESS_KEY"
+          ./gradlew deployDocs -PdeployDocsSshKey="$DOCS_SSH_KEY" -PdeployDocsSshUsername="$DOCS_USERNAME" -PdeployDocsHost="$DOCS_HOST" --stacktrace
+        env:
+          DOCS_USERNAME: ${{ secrets.DOCS_USERNAME }}
+          DOCS_SSH_KEY: ${{ secrets.DOCS_SSH_KEY }}
+          DOCS_HOST: ${{ secrets.DOCS_HOST }}
+      - name: Output failure
+        if: ${{ failure() }}
+        run: |
+          echo ":no_entry_sign: *${GITHUB_JOB}* failed" > job-$GITHUB_JOB.txt
+      - name: Export errors file
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v2
+        with:
+          name: errors
+          path: job-${{ github.job }}.txt
+  deploy_schema:
+    name: Deploy Schema
+    needs: [build, test_alternate_jdks, snapshot_tests, sonar_analysis]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Set up JDK
+        uses: actions/setup-java@v1
+        with:
+          java-version: '8'
+      - name: Deploy Schema
+        run: |
+          export GRADLE_ENTERPRISE_CACHE_USERNAME="$GRADLE_ENTERPRISE_CACHE_USER"
+          export GRADLE_ENTERPRISE_CACHE_PASSWORD="$GRADLE_ENTERPRISE_CACHE_PASSWORD"
+          export GRADLE_ENTERPRISE_ACCESS_KEY="$GRADLE_ENTERPRISE_SECRET_ACCESS_KEY"
+          ./gradlew deploySchema -PdeployDocsSshKey="$DOCS_SSH_KEY" -PdeployDocsSshUsername="$DOCS_USERNAME" -PdeployDocsHost="$DOCS_HOST" --stacktrace --info
+        env:
+          DOCS_USERNAME: ${{ secrets.DOCS_USERNAME }}
+          DOCS_SSH_KEY: ${{ secrets.DOCS_SSH_KEY }}
+          DOCS_HOST: ${{ secrets.DOCS_HOST }}
+      - name: Output failure
+        if: ${{ failure() }}
+        run: |
+          echo ":no_entry_sign: *${GITHUB_JOB}* failed" > job-$GITHUB_JOB.txt
+      - name: Export errors file
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v2
+        with:
+          name: errors
+          path: job-${{ github.job }}.txt
+  notify_result:
+    name: Check for failures
+    needs: [build, test_alternate_jdks, snapshot_tests, sonar_analysis, deploy_artifacts, deploy_docs, deploy_schema]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Download errors folder
+        uses: actions/download-artifact@v2
+        with:
+          name: errors
+      - name: Alert Slack on build failure
+        run: |
+          cat job-*.txt > results.txt
+          results="$(cat results.txt)"
+          jobFilesCount=$(ls . | grep 'job-.*\.txt' | wc -l)
+          (( $jobFilesCount > 1 )) && curl -X POST -H 'Content-type: application/json' --data '{"blocks":[{"type":"header","text":{"type":"plain_text","text":"CI build failed for commit '"${COMMIT_SHA:0:9}"' on '${GITHUB_REF#refs/heads/}'"}},{"type":"section","text":{"type":"mrkdwn","text":"— _Author: '"$COMMIT_OWNER"'_"}}, {"type":"section","text":{"type":"mrkdwn","text":"\n '"$results"'"}}]}' "$SLACK_WEBHOOK_URL" || echo Slack message not sent, no errors to report
+  clean_artifacts:
+    name: Clean build artifacts
+    needs: [notify_result]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call webhook to delete artifacts
+        env:
+          GH_ACTIONS_REPO_TOKEN: ${{ secrets.GH_ACTIONS_REPO_TOKEN }}
+        run: |
+          echo Got to clean step
+          curl --verbose -X POST -H "Authorization: token $GH_ACTIONS_REPO_TOKEN" -H "Content-Type: application/json" -d '{"event_type":"delete_all_artifacts", "client_payload":{"parent_run_id": "$GITHUB_RUN_ID", "parent_repo": "$GITHUB_REPOSITORY"}}' "https://api.github.com/repos/spring-projects/spring-security/dispatches"
+
