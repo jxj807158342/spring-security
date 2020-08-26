@@ -50,7 +50,7 @@ jobs:
           echo "GITHUB_JOB is $GITHUB_JOB"
           echo ":no_entry_sign: <https://github.com/$GITHUB_REPOSITORY/actions/runs/$JOB_ID/?check_suite_focus=true|*${GITHUB_JOB}*> failed" > job-$GITHUB_JOB.txt
         env:
-          JOB_ID = ${{ job.container.id }}
+          JOB_ID: ${{ job.container.id }}
       - name: Export errors file
 #        if: ${{ failure() }}
         uses: actions/upload-artifact@v2
