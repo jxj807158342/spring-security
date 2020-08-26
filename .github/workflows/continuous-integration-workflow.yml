@@ -47,6 +47,7 @@ jobs:
       - name: Output failure
 #        if: ${{ failure() }}
         run: |
+          echo "GITHUB_JOB is $GITHUB_JOB"
           echo ":no_entry_sign: <https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_JOB|*${GITHUB_JOB}*> failed" > job-$GITHUB_JOB.txt
       - name: Export errors file
 #        if: ${{ failure() }}
