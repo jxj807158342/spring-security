@@ -265,16 +265,3 @@ jobs:
           results="$(cat results.txt)"
           jobFilesCount=$(ls . | grep 'job-.*\.txt' | wc -l)
           (( $jobFilesCount > 1 )) && curl -X POST -H 'Content-type: application/json' --data '{"blocks":[{"type":"header","text":{"type":"plain_text","text":"CI build failed for commit '"${COMMIT_SHA:0:9}"' on '${GITHUB_REF#refs/heads/}'"}},{"type":"section","text":{"type":"mrkdwn","text":"— _Author: '"$COMMIT_OWNER"'_"}}, {"type":"section","text":{"type":"mrkdwn","text":"\n '"$results"'"}}]}' "$SLACK_WEBHOOK_URL" || echo Slack message not sent, no errors to report
-  clean_artifacts:
-    name: Clean build artifacts
-    needs: [notify_result]
-    if: always()
-    runs-on: ubuntu-latest
-    steps:
-      - name: Call webhook to delete artifacts
-        env:
-          GH_ACTIONS_REPO_TOKEN: ${{ secrets.GH_ACTIONS_REPO_TOKEN }}
-        run: |
-          echo Got to clean step
-          curl --verbose -X POST -H "Authorization: token $GH_ACTIONS_REPO_TOKEN" -H "Content-Type: application/json" -d '{"event_type":"delete_all_artifacts", "client_payload":{"parent_run_id": "$GITHUB_RUN_ID", "parent_repo": "$GITHUB_REPOSITORY"}}' "https://api.github.com/repos/spring-projects/spring-security/dispatches"
-
