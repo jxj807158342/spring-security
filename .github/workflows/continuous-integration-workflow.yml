@@ -268,6 +268,6 @@ jobs:
           cat job-*.txt > results.txt
           results="$(cat results.txt)"
           jobFilesCount=$(ls . | grep 'job-.*\.txt' | wc -l)
-          (( $jobFilesCount > 1 )) && curl -X POST -H 'Content-type: application/json' --data '{"blocks":[{"type":"header","text":{"type":"plain_text","text":"[CI build](https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID) failed for commit '"${COMMIT_SHA:0:9}"' on '${GITHUB_REF#refs/heads/}'"}},{"type":"section","text":{"type":"mrkdwn","text":"— _Author: '"$COMMIT_OWNER"' $OWNER_LINK _ <https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID|View build>"}}, {"type":"section","text":{"type":"mrkdwn","text":"\n '"$results"'"}}]}' "$SLACK_WEBHOOK_URL" || echo Slack message not sent, no errors to report
+          (( $jobFilesCount > 1 )) && curl -X POST -H 'Content-type: application/json' --data '{"blocks":[{"type":"header","text":{"type":"plain_text","text":"[CI build](https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID) failed for commit '"${COMMIT_SHA:0:9}"' on '${GITHUB_REF#refs/heads/}'"}},{"type":"section","text":{"type":"mrkdwn","text":"— _Author: '"$COMMIT_OWNER"' '"$OWNER_LINK"' _ <https://github.com/'"$GITHUB_REPOSITORY"'/actions/runs/'"$GITHUB_RUN_ID"'|View build>"}}, {"type":"section","text":{"type":"mrkdwn","text":"\n '"$results"'"}}]}' "$SLACK_WEBHOOK_URL" || echo Slack message not sent, no errors to report
         env:
           OWNER_LINK: ${{ github.sender.html_url }}
