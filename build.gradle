@@ -23,6 +23,8 @@ ext.milestoneBuild = !(snapshotBuild || releaseBuild)
 dependencyManagementExport.projects = subprojects.findAll { !it.name.contains('-boot') }
 
 repositories {
+	maven { url 'https://maven.aliyun.com/nexus/content/groups/public/' }
+	maven { url 'https://maven.aliyun.com/nexus/content/repositories/jcenter' }
 	mavenCentral()
 }
 
